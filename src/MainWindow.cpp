@@ -19,7 +19,6 @@ MainWindow::MainWindow(QWidget *parent)
 {
     ui->setupUi(this);
 
-    // Replace the existing table with a scroll area
     QScrollArea *scrollArea = new QScrollArea();
     QWidget *scrollWidget = new QWidget();
     QVBoxLayout *scrollLayout = new QVBoxLayout(scrollWidget);
@@ -28,7 +27,6 @@ MainWindow::MainWindow(QWidget *parent)
     scrollArea->setWidget(scrollWidget);
     scrollArea->setWidgetResizable(true);
     
-    // Replace the table in the existing layout
     QVBoxLayout *mainLayout = qobject_cast<QVBoxLayout*>(ui->centralwidget->layout());
     if (mainLayout) {
         // Remove the old table
@@ -38,7 +36,7 @@ MainWindow::MainWindow(QWidget *parent)
         // Add the scroll area
         mainLayout->addWidget(scrollArea);
         
-        // Store references for later use
+        // Store references
         scrollArea_ = scrollArea;
         scrollWidget_ = scrollWidget;
         scrollLayout_ = scrollLayout;
@@ -186,7 +184,7 @@ void MainWindow::createFileSection(const QString &filePath, const QList<CommentG
     
     scrollLayout_->addWidget(table);
     
-    // Add separator line if requested
+    // Add separator line if needed
     if (addSeparator) {
         QFrame *separator = new QFrame();
         separator->setFrameShape(QFrame::HLine);
@@ -270,11 +268,12 @@ QList<QPair<int, QString>> MainWindow::getModifiedCommentsForFile(int fileIndex)
                                 // Insert immediately after the last line of the current group
                                 int lastOriginalLine = originalGroup.lineNumbers.last();
                                 
-                                // Use special notation: -1000 - lineNumber means "insert after this line"
-                                lineNumber = -1000 - lastOriginalLine;
+                                // Use special notation: encode as decimal: -(lastLine * 1000 + offset)
+                                int offset = i - originalGroup.lineNumbers.size(); // 0, 1, 2, etc.
+                                lineNumber = -(lastOriginalLine * 1000 + offset + 1);
                                 commentToSave = modifiedLines[i];
                                 
-                                qDebug() << "Adding new comment line after line" << lastOriginalLine << ":" << commentToSave;
+                                qDebug() << "Adding new comment line after line" << lastOriginalLine << "with offset" << offset << ":" << commentToSave;
                                 qDebug() << "Using special line number" << lineNumber;
                             }
                             

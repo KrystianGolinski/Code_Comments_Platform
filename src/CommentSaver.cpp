@@ -95,44 +95,80 @@ bool CommentSaver::saveCommentsWithMultiLine(const QString &filePath, const QLis
 
     QString commentMarker = getCommentMarker(filePath);
     
-    // Process comments in reverse order to handle line number shifts correctly
-    QList<QPair<int, QString>> sortedComments = comments;
-    std::sort(sortedComments.begin(), sortedComments.end(), 
+    // Process insertions and replacements separately
+    // First do all replacements, then do all insertions in the correct order
+    QList<QPair<int, QString>> replacements;
+    QList<QPair<int, QString>> insertions;
+    
+    for (const auto &comment : comments) {
+        if (comment.first < 0) {
+            insertions.append(comment);
+        } else {
+            replacements.append(comment);
+        }
+    }
+    
+    // Sort replacements by line number (any order is fine for replacements)
+    std::sort(replacements.begin(), replacements.end(), 
               [](const QPair<int, QString> &a, const QPair<int, QString> &b) {
-                  return a.first > b.first; // Sort in descending order
+                  return a.first < b.first;
               });
+              
+    // Sort insertions by decoded line number and offset (process sequentially)
+    std::sort(insertions.begin(), insertions.end(), 
+              [](const QPair<int, QString> &a, const QPair<int, QString> &b) {
+                  int aEncoded = -a.first;
+                  int bEncoded = -b.first;
+                  int aBaseLine = aEncoded / 1000;
+                  int bBaseLine = bEncoded / 1000;
+                  int aOffset = (aEncoded % 1000) - 1;
+                  int bOffset = (bEncoded % 1000) - 1;
+                  
+                  if (aBaseLine != bBaseLine) {
+                      return aBaseLine < bBaseLine; // Process earlier base lines first
+                  }
+                  return aOffset < bOffset; // Process lower offsets first
+              });
+    
+    QList<QPair<int, QString>> sortedComments = replacements + insertions;
 
+    // Track how many lines have been inserted so far
+    int totalInsertedLines = 0;
+    
     for (const auto &commentPair : sortedComments) {
         int lineNumber = commentPair.first;
         QString newComment = commentPair.second;
         
         qDebug() << "Processing comment for line" << lineNumber << ":" << newComment;
         
-        // Handle special line number signals
-        if (lineNumber < -1000) {
-            // Insert after line: -1000 - lineNumber means "insert after this line"
-            int insertAfterLine = -1000 - lineNumber;
-            int insertIndex = insertAfterLine; // Insert after means at position lineNumber+1 (0-based: lineNumber)
+        // Handle special line number signals for insertions
+        if (lineNumber < 0) {
+            // Format: -(baseLine * 1000 + offset + 1)
+            int encoded = -lineNumber;
+            int baseLine = encoded / 1000; // Extract base line (1-based line number from original file)
+            int offset = (encoded % 1000) - 1; // Extract offset (0, 1, 2, ...)
             
-            qDebug() << "Insert after line" << insertAfterLine << "(index" << insertIndex << ")";
-            
-            QString commentMarkerLine = commentMarker + " " + newComment;
-            if (insertIndex <= allLines.size()) {
-                allLines.insert(insertIndex, commentMarkerLine);
-                qDebug() << "Inserted new line after line" << insertAfterLine << ":" << commentMarkerLine;
+            // Account for previous insertions that happened before this base line
+            int insertionsBefore = 0;
+            for (const auto &prevComment : insertions) {
+                if (prevComment.first == commentPair.first) break; // Don't count self and later insertions
+                int prevEncoded = -prevComment.first;
+                int prevBaseLine = prevEncoded / 1000;
+                if (prevBaseLine < baseLine) {
+                    insertionsBefore++;
+                }
             }
-            continue; // Skip normal processing
-        } else if (lineNumber < 0) {
-            // Insert before line: negative lineNumber means "insert before this line"
-            int insertBeforeLine = -lineNumber;
-            int insertIndex = insertBeforeLine - 1; // Convert to 0-based
             
-            qDebug() << "Insert before line" << insertBeforeLine << "(index" << insertIndex << ")";
+            // Calculate insertion index: baseLine + offset + adjustments for previous insertions
+            int insertIndex = baseLine + offset + insertionsBefore;
+            
+            qDebug() << "Insert after original line" << baseLine << "with offset" << offset << "and" << insertionsBefore << "previous insertions -> final index" << insertIndex;
             
             QString commentMarkerLine = commentMarker + " " + newComment;
-            if (insertIndex <= allLines.size()) {
+            if (insertIndex >= 0 && insertIndex <= allLines.size()) {
                 allLines.insert(insertIndex, commentMarkerLine);
-                qDebug() << "Inserted new line before existing line:" << commentMarkerLine;
+                totalInsertedLines++;
+                qDebug() << "Inserted new line:" << commentMarkerLine << "at index" << insertIndex;
             }
             continue; // Skip normal processing
         }
@@ -214,9 +250,14 @@ bool CommentSaver::saveCommentsWithMultiLine(const QString &filePath, const QLis
     }
 
     QTextStream out(&tempFile);
-    for (const QString &line : allLines) {
-        out << line << "\n";
+    for (int i = 0; i < allLines.size(); ++i) {
+        out << allLines[i];
+        if (i < allLines.size() - 1) {
+            out << "\n";
+        }
     }
+    // Always end with a newline
+    out << "\n";
     tempFile.close();
 
     // Replace the original file

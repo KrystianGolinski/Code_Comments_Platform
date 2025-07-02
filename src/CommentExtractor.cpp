@@ -64,7 +64,7 @@ QList<QPair<int, QString>> CommentExtractor::extractComments(const QString &file
     return comments;
 }
 
-// New method to extract comments with full context
+// Extract comments with full context (for inlines)
 QList<QPair<int, QPair<QString, QString>>> CommentExtractor::extractCommentsWithContext(const QString &filePath)
 {
     QList<QPair<int, QPair<QString, QString>>> commentsWithContext; // lineNumber, (comment, fullLine)
