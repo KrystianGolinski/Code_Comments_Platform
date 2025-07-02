@@ -19,7 +19,7 @@ struct CommentGroup {
         for (int line : lineNumbers) {
             lineStrings.append(QString::number(line));
         }
-        return lineStrings.join(",");
+        return lineStrings.join("\n");
     }
     
     QString getCombinedComments() const {

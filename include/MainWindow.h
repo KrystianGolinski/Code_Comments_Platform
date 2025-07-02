@@ -51,4 +51,5 @@ private:
     void createFileSection(const QString &filePath, const QList<CommentGroup> &commentGroups, bool addSeparator = false);
     QList<QPair<int, QString>> getModifiedCommentsForFile(int fileIndex);
     QString extractCommentFromFullLine(const QString &fullLine);
+    void adjustScrollAreaSizeIntelligently();
 };

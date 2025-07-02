@@ -26,6 +26,7 @@ MainWindow::MainWindow(QWidget *parent)
     scrollWidget->setLayout(scrollLayout);
     scrollArea->setWidget(scrollWidget);
     scrollArea->setWidgetResizable(true);
+    scrollArea->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     
     QVBoxLayout *mainLayout = qobject_cast<QVBoxLayout*>(ui->centralwidget->layout());
     if (mainLayout) {
@@ -33,8 +34,9 @@ MainWindow::MainWindow(QWidget *parent)
         mainLayout->removeWidget(ui->commentsTable);
         delete ui->commentsTable;
         
-        // Add the scroll area
-        mainLayout->addWidget(scrollArea);
+        // Add the scroll area with dynamic sizing
+        mainLayout->addWidget(scrollArea, 1); // Give it stretch factor 1
+        // Let scroll area take available space
         
         // Store references
         scrollArea_ = scrollArea;
@@ -81,6 +83,9 @@ void MainWindow::on_openFileButton_clicked()
             // Create file section
             createFileSection(filePath, commentGroups, i < fileNames.size() - 1);
         }
+        
+        // Decide between natural Qt sizing vs constrained sizing based on content
+        adjustScrollAreaSizeIntelligently();
     }
 }
 
@@ -135,7 +140,10 @@ void MainWindow::createFileSection(const QString &filePath, const QList<CommentG
     QTableWidget *table = new QTableWidget();
     table->setColumnCount(2);
     table->setHorizontalHeaderLabels({"Line", "Comment"});
-    table->horizontalHeader()->setStretchLastSection(true);
+    
+    // Set column sizing - Line column fits content, Comment column takes remaining space
+    table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
     table->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::AnyKeyPressed);
     
     // Hide row numbers/indexes
@@ -156,9 +164,11 @@ void MainWindow::createFileSection(const QString &filePath, const QList<CommentG
         int row = table->rowCount();
         table->insertRow(row);
         
-        // Set line range in first column
-        table->setItem(row, 0, new QTableWidgetItem(group.getLineRange()));
-        table->item(row, 0)->setFlags(table->item(row, 0)->flags() & ~Qt::ItemIsEditable);
+        // Set line range in first column - Right Aligned
+        QTableWidgetItem *lineItem = new QTableWidgetItem(group.getLineRange());
+        lineItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        lineItem->setFlags(lineItem->flags() & ~Qt::ItemIsEditable);
+        table->setItem(row, 0, lineItem);
         
         // Set combined comments in second column
         table->setItem(row, 1, new QTableWidgetItem(group.getCombinedComments()));
@@ -313,6 +323,93 @@ QString MainWindow::extractCommentFromFullLine(const QString &fullLine)
     
     // If no comment markers found, return the full line (shouldn't happen for inline comments)
     return fullLine.trimmed();
+}
+
+void MainWindow::adjustScrollAreaSizeIntelligently()
+{
+    if (!scrollArea_ || !scrollWidget_) return;
+    
+    // Force layout update to get accurate measurements
+    scrollWidget_->updateGeometry();
+    scrollLayout_->activate();
+    
+    // Calculate actual content height
+    int totalContentHeight = 0;
+    for (int i = 0; i < scrollLayout_->count(); ++i) {
+        QLayoutItem *item = scrollLayout_->itemAt(i);
+        if (item && item->widget()) {
+            QWidget *widget = item->widget();
+            widget->adjustSize();
+            totalContentHeight += widget->height();
+        }
+    }
+    
+    // Add layout margins and padding
+    totalContentHeight += scrollLayout_->contentsMargins().top() + scrollLayout_->contentsMargins().bottom();
+    totalContentHeight += scrollLayout_->spacing() * (scrollLayout_->count() - 1);
+    totalContentHeight += 40; // Extra padding
+    
+    // Calculate available space
+    int windowHeight = this->height();
+    int buttonAreaHeight = 80;
+    int availableHeight = windowHeight - buttonAreaHeight - 20; // 20px bottom margin
+    
+    // Get the main layout
+    QVBoxLayout *mainLayout = qobject_cast<QVBoxLayout*>(ui->centralwidget->layout());
+    if (!mainLayout) return;
+    
+    // Decision: if content needs more than 60% of available space, let Qt expand naturally
+    // Otherwise, constrain size and add spacer
+    if (totalContentHeight > availableHeight * 0.6) {
+        // Sufficient content - using natural Qt expansion
+        
+        // Remove any existing spacer
+        for (int i = mainLayout->count() - 1; i >= 0; --i) {
+            QLayoutItem *item = mainLayout->itemAt(i);
+            if (item && !item->widget() && item->spacerItem()) {
+                mainLayout->removeItem(item);
+                delete item;
+            }
+        }
+        
+        // Clear size constraints and let Qt handle sizing
+        scrollArea_->setMinimumHeight(0);
+        scrollArea_->setMaximumHeight(QWIDGETSIZE_MAX);
+        
+        // Set stretch factor for expansion
+        mainLayout->setStretchFactor(scrollArea_, 1);
+        
+    } else {
+        // Insufficient content - constraining size and adding spacer
+        
+        // Constrain scroll area to content size
+        int constrainedHeight = std::min(totalContentHeight, availableHeight);
+        constrainedHeight = std::max(200, constrainedHeight); // Minimum usable height
+        
+        scrollArea_->setMinimumHeight(constrainedHeight);
+        scrollArea_->setMaximumHeight(constrainedHeight);
+        
+        // Remove stretch factor
+        mainLayout->setStretchFactor(scrollArea_, 0);
+        
+        // Add spacer if it doesn't exist
+        bool hasSpacerAfterScrollArea = false;
+        for (int i = 0; i < mainLayout->count(); ++i) {
+            if (mainLayout->itemAt(i)->widget() == scrollArea_) {
+                if (i + 1 < mainLayout->count()) {
+                    QLayoutItem *nextItem = mainLayout->itemAt(i + 1);
+                    if (nextItem && nextItem->spacerItem()) {
+                        hasSpacerAfterScrollArea = true;
+                    }
+                }
+                break;
+            }
+        }
+        
+        if (!hasSpacerAfterScrollArea) {
+            mainLayout->addStretch(1);
+        }
+    }
 }
 
 // MultiLineTextDelegate implementation
